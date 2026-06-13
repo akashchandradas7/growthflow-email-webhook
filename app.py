@@ -71,6 +71,7 @@ def send_reply_via_brevo(to_email, subject, reply_text):
     payload = {
         "sender": {"name": SENDER_NAME, "email": SENDER_EMAIL},
         "to": [{"email": to_email}],
+        "replyTo": {"email": "hello@support.growthflow.ltd", "name": SENDER_NAME},
         "subject": f"Re: {subject}",
         "htmlContent": html_content
     }
