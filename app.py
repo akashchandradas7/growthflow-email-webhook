@@ -1,8 +1,11 @@
-from flask import Flask, request, jsonify
 import os
 import requests
 import json
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
 from openai import OpenAI
+from datetime import datetime
+from flask import Flask, request, jsonify
 
 app = Flask(__name__)
 
@@ -25,6 +28,28 @@ BREVO_API_KEY = os.environ.get("BREVO_API_KEY")
 SENDER_EMAIL = os.environ.get("SENDER_EMAIL")
 SENDER_NAME = os.environ.get("SENDER_NAME")
 NVIDIA_API_KEY = os.environ.get("NVIDIA_API_KEY")
+SHEET_LINK = "https://docs.google.com/spreadsheets/d/1rANALl9K97olxQbVP-Bjrhv0aHboIhMzFfiwCgyYFg8/edit"
+
+def get_google_sheet(sheet_name="Inbox"):
+    scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+    creds_json = os.environ.get("GOOGLE_CREDENTIALS_JSON")
+    if creds_json:
+        creds_dict = json.loads(creds_json)
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+    else:
+        # Fallback for local testing if running on PC
+        creds = ServiceAccountCredentials.from_json_keyfile_name("../credentials.json", scope)
+    
+    client = gspread.authorize(creds)
+    spreadsheet = client.open_by_url(SHEET_LINK)
+    
+    try:
+        sheet = spreadsheet.worksheet(sheet_name)
+    except gspread.exceptions.WorksheetNotFound:
+        sheet = spreadsheet.add_worksheet(title=sheet_name, rows="1000", cols="10")
+        sheet.append_row(["Timestamp", "Client Email", "Client Name", "Client Message", "AI Draft", "Status"])
+        
+    return sheet
 
 # Initialize Nvidia NIM client (OpenAI compatible)
 client = OpenAI(
@@ -105,12 +130,19 @@ def brevo_webhook():
                 
             print(f"Processing inbound email from {from_email}: {subject}")
             
-            # Generate AI Reply
-            ai_reply = generate_ai_reply(text_body, from_name)
+            # Generate AI Draft
+            ai_draft = generate_ai_reply(text_body, from_name)
             
-            if ai_reply:
-                print("Generated AI Reply, sending via Brevo...")
-                send_reply_via_brevo(from_email, subject, ai_reply)
+            if ai_draft:
+                print("Generated AI Draft, saving to Google Sheets Inbox...")
+                try:
+                    sheet = get_google_sheet("Inbox")
+                    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    sheet.append_row([timestamp, from_email, from_name, text_body, ai_draft, "Pending"])
+                    print("✅ Saved to Google Sheets Inbox.")
+                except Exception as sheet_e:
+                    print(f"❌ Failed to save to sheet: {sheet_e}")
+                    # Fallback to sending immediately if sheet fails? No, keep it failed to avoid duplicate chaos
             
     except Exception as e:
         print(f"Webhook processing error: {e}")
