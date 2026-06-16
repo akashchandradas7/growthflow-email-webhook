@@ -5,7 +5,15 @@ import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime, timedelta
 import random
+import dns.resolver
 
+def verify_email_domain(email):
+    try:
+        domain = email.split('@')[1]
+        records = dns.resolver.resolve(domain, 'MX')
+        return True if records else False
+    except Exception:
+        return False
 # ==========================================
 # 1. Load Environment Variables
 # ==========================================
@@ -172,6 +180,10 @@ def run_outbound_campaign():
             if not outbound_allowed:
                 continue
                 
+            if not verify_email_domain(email):
+                main_sheet.update_cell(row_num, status_col_idx, "Invalid Email (No MX)")
+                continue
+
             hook = random.choice(hooks)
             subject = f"{hook} + {industry} + {business_name}"
             html_content = get_initial_email_html(name, business_name, industry)
