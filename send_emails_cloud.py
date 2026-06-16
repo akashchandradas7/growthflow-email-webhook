@@ -116,7 +116,9 @@ def run_outbound_campaign():
     try:
         main_sheet, inbox_sheet = get_google_sheets()
     except Exception as e:
-        return {"status": "error", "message": f"Failed to connect to Google Sheets: {str(e)}"}
+        import traceback
+        tb = traceback.format_exc()
+        return {"status": "error", "message": f"Failed to connect to Google Sheets: {str(e)}", "traceback": tb}
     
     headers = main_sheet.row_values(1)
     if "Status" not in headers:
