@@ -136,7 +136,8 @@ def run_outbound_campaign():
     status_col_idx = headers.index("Status") + 1
     records = main_sheet.get_all_records()
     
-    outbound_allowed = True
+    # SYSTEM PAUSED BY USER REQUEST (16-Jun-2026)
+    outbound_allowed = False
         
     # Get Replied Emails
     replied_emails = set()
