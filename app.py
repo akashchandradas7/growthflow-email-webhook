@@ -57,15 +57,31 @@ client = OpenAI(
   api_key = NVIDIA_API_KEY
 )
 
+def read_obsidian_brain():
+    brain_text = ""
+    brain_dir = "GrowthFlow_Brain"
+    if os.path.exists(brain_dir):
+        for filename in sorted(os.listdir(brain_dir)):
+            if filename.endswith(".md"):
+                with open(os.path.join(brain_dir, filename), "r", encoding="utf-8") as f:
+                    brain_text += f"\n\n--- {filename} ---\n{f.read()}"
+    return brain_text
+
 def generate_ai_reply(incoming_email_text, sender_name):
     # Using deepseek-v4-pro for the best intelligence and reasoning
     model_name = "deepseek-ai/deepseek-v4-pro"
+    
+    brain_knowledge = read_obsidian_brain()
     
     system_prompt = f"""You are an intelligent and professional AI assistant managing email replies for {SENDER_NAME}.
 You will receive an email from a customer or lead. Your job is to write a polite, professional, and highly contextual reply.
 Keep the reply concise, persuasive, and to the point.
 Do not include subject lines or headers in your output, just the body of the email.
-End the email with a professional sign-off from {SENDER_NAME}."""
+End the email with a professional sign-off from {SENDER_NAME}.
+
+IMPORTANT KNOWLEDGE BASE & RULES TO FOLLOW:
+{brain_knowledge}
+"""
 
     user_prompt = f"Here is the email from {sender_name}:\n\n{incoming_email_text}\n\nPlease generate a professional reply."
 
