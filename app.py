@@ -169,5 +169,15 @@ def brevo_webhook():
 def home():
     return "GrowthFlow AI Webhook Server is Running and listening for emails!"
 
+import send_emails_cloud
+
+@app.route('/trigger-emails', methods=['GET', 'POST'])
+def trigger_emails():
+    try:
+        result = send_emails_cloud.run_outbound_campaign()
+        return jsonify(result), 200
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
