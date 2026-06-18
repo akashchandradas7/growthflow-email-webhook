@@ -74,25 +74,38 @@ def generate_ai_reply(incoming_email_text, sender_name):
     brain_knowledge = read_obsidian_brain()
     
     system_prompt = f"""You are an intelligent and professional AI assistant managing email replies for {SENDER_NAME}.
-You will receive an email from a customer or lead. Your job is to write a polite, professional, and highly contextual reply.
-Keep the reply concise, persuasive, and to the point.
-Do not include subject lines or headers in your output, just the body of the email.
-End the email with a professional sign-off from {SENDER_NAME}.
+First, you must classify the incoming email. 
+We receive many automated emails (Facebook notifications, account verification codes, spam, phishing). You MUST IGNORE these.
+You must ONLY reply to legitimate, human-written emails regarding business, inquiries, questions, or responses to our outreach.
+
+Output your response STRICTLY as a JSON object with the following keys:
+1. "is_human_business_inquiry": boolean (true if it's a legitimate human business email, false if it's spam, notification, automated, or phishing)
+2. "reason": string (brief reason for your classification)
+3. "reply_body": string (If true, write a polite, professional, persuasive reply. Do not include subject lines or headers. End with a professional sign-off from {SENDER_NAME}. If false, leave this empty)
 
 IMPORTANT KNOWLEDGE BASE & RULES TO FOLLOW:
 {brain_knowledge}
 """
 
-    user_prompt = f"Here is the email from {sender_name}:\n\n{incoming_email_text}\n\nPlease generate a professional reply."
+    user_prompt = f"Here is the email from {sender_name}:\n\n{incoming_email_text}\n\nPlease generate the JSON."
 
     try:
         completion = client.chat.completions.create(
             model=model_name,
             messages=[{"role":"system","content":system_prompt}, {"role":"user","content":user_prompt}],
-            temperature=0.6,
-            max_tokens=1024
+            temperature=0.3,
+            max_tokens=1024,
+            response_format={"type": "json_object"}
         )
-        return completion.choices[0].message.content
+        content = completion.choices[0].message.content
+        # Sometimes models wrap json in markdown block, try to clean it
+        if content.startswith("```json"):
+            content = content.split("```json")[1].split("```")[0].strip()
+        elif content.startswith("```"):
+            content = content.split("```")[1].split("```")[0].strip()
+            
+        import json
+        return json.loads(content)
     except Exception as e:
         print(f"AI Generation Error: {e}")
         return None
@@ -146,19 +159,31 @@ def brevo_webhook():
                 
             print(f"Processing inbound email from {from_email}: {subject}")
             
-            # Generate AI Draft
-            ai_draft = generate_ai_reply(text_body, from_name)
+            # Generate AI Classification & Draft
+            ai_response = generate_ai_reply(text_body, from_name)
             
-            if ai_draft:
-                print("Generated AI Draft, saving to Google Sheets Inbox...")
+            if ai_response and isinstance(ai_response, dict):
+                is_valid = ai_response.get("is_human_business_inquiry", False)
+                reason = ai_response.get("reason", "No reason provided")
+                reply_body = ai_response.get("reply_body", "")
+                
+                print(f"AI Classification: Valid={is_valid}, Reason={reason}")
+                
                 try:
                     sheet = get_google_sheet("Inbox")
                     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    sheet.append_row([timestamp, from_email, from_name, text_body, ai_draft, "Pending"])
-                    print("✅ Saved to Google Sheets Inbox.")
+                    
+                    if is_valid and reply_body:
+                        # Actually send the email immediately
+                        send_reply_via_brevo(from_email, subject, reply_body)
+                        status = "Auto-Replied"
+                    else:
+                        status = f"Filtered: {reason}"
+                        
+                    sheet.append_row([timestamp, from_email, from_name, text_body, reply_body, status])
+                    print(f"✅ Saved to Google Sheets Inbox with status: {status}")
                 except Exception as sheet_e:
-                    print(f"❌ Failed to save to sheet: {sheet_e}")
-                    # Fallback to sending immediately if sheet fails? No, keep it failed to avoid duplicate chaos
+                    print(f"❌ Failed to save to sheet or send reply: {sheet_e}")
             
     except Exception as e:
         print(f"Webhook processing error: {e}")
@@ -169,6 +194,7 @@ def brevo_webhook():
 def home():
     return "GrowthFlow AI Webhook Server is Running and listening for emails!"
 
+import traceback
 import send_emails_cloud
 
 @app.route('/trigger-emails', methods=['GET', 'POST'])
@@ -177,7 +203,8 @@ def trigger_emails():
         result = send_emails_cloud.run_outbound_campaign()
         return jsonify(result), 200
     except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
+        tb = traceback.format_exc()
+        return jsonify({"status": "error", "message": str(e), "traceback": tb}), 500
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
