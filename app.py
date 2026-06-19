@@ -98,13 +98,14 @@ IMPORTANT KNOWLEDGE BASE & RULES TO FOLLOW:
             response_format={"type": "json_object"}
         )
         content = completion.choices[0].message.content
-        # Sometimes models wrap json in markdown block, try to clean it
-        if content.startswith("```json"):
-            content = content.split("```json")[1].split("```")[0].strip()
-        elif content.startswith("```"):
-            content = content.split("```")[1].split("```")[0].strip()
-            
         import json
+        import re
+        
+        # Try to find JSON block using regex
+        json_match = re.search(r'\{.*\}', content, re.DOTALL)
+        if json_match:
+            content = json_match.group(0)
+            
         return json.loads(content)
     except Exception as e:
         print(f"AI Generation Error: {e}")
@@ -162,6 +163,11 @@ def brevo_webhook():
             # Generate AI Classification & Draft
             ai_response = generate_ai_reply(text_body, from_name)
             
+            is_valid = False
+            reason = "AI Error or Invalid JSON"
+            reply_body = ""
+            status = "AI Parsing Failed"
+
             if ai_response and isinstance(ai_response, dict):
                 is_valid = ai_response.get("is_human_business_inquiry", False)
                 reason = ai_response.get("reason", "No reason provided")
@@ -169,21 +175,20 @@ def brevo_webhook():
                 
                 print(f"AI Classification: Valid={is_valid}, Reason={reason}")
                 
-                try:
-                    sheet = get_google_sheet("Inbox")
-                    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                if is_valid and reply_body:
+                    # Actually send the email immediately
+                    send_reply_via_brevo(from_email, subject, reply_body)
+                    status = "Auto-Replied"
+                else:
+                    status = f"Filtered: {reason}"
                     
-                    if is_valid and reply_body:
-                        # Actually send the email immediately
-                        send_reply_via_brevo(from_email, subject, reply_body)
-                        status = "Auto-Replied"
-                    else:
-                        status = f"Filtered: {reason}"
-                        
-                    sheet.append_row([timestamp, from_email, from_name, text_body, reply_body, status])
-                    print(f"✅ Saved to Google Sheets Inbox with status: {status}")
-                except Exception as sheet_e:
-                    print(f"❌ Failed to save to sheet or send reply: {sheet_e}")
+            try:
+                sheet = get_google_sheet("Inbox")
+                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                sheet.append_row([timestamp, from_email, from_name, text_body, reply_body, status])
+                print(f"✅ Saved to Google Sheets Inbox with status: {status}")
+            except Exception as sheet_e:
+                print(f"❌ Failed to save to sheet: {sheet_e}")
             
     except Exception as e:
         print(f"Webhook processing error: {e}")
