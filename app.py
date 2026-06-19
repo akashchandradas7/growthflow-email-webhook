@@ -143,19 +143,29 @@ def brevo_webhook():
     print("\n--- New Webhook Received ---")
     
     try:
+        # Debugging: Dump raw data to sheet to understand Brevo payload
+        raw_json_str = json.dumps(data)
+        
         # Brevo's inbound webhook usually sends data directly or inside an 'items' array
         items = data.get("items", []) if "items" in data else [data]
-            
+        
+        # If parsing fails or we just want to see the structure, we can just grab from raw payload
+        # Wait, let's try to extract basic fields but also log the raw json.
+        
         for item in items:
-            from_email = item.get("From", {}).get("Address", "")
-            from_name = item.get("From", {}).get("Name", "Customer")
-            subject = item.get("Subject", "Reply")
+            # Try Postmark style
+            from_email = item.get("From", {}).get("Address", "") if isinstance(item.get("From"), dict) else item.get("From", "")
+            # Try Sendinblue/Brevo style
+            if not from_email:
+                from_email = item.get("from", "")
+                
+            from_name = item.get("From", {}).get("Name", "Customer") if isinstance(item.get("From"), dict) else "Customer"
+            subject = item.get("Subject", "") or item.get("subject", "Reply")
             
-            # Extract text body (fallback to html if text is missing)
-            text_body = item.get("TextBody", "") or item.get("RawHtmlBody", "")
+            text_body = item.get("TextBody", "") or item.get("RawHtmlBody", "") or item.get("text", "") or raw_json_str
             
             # Ignore automated bounces or emails sent by ourselves
-            if not from_email or from_email == SENDER_EMAIL:
+            if not from_email or SENDER_EMAIL in from_email:
                 continue
                 
             print(f"Processing inbound email from {from_email}: {subject}")
