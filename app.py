@@ -137,20 +137,15 @@ def send_reply_via_brevo(to_email, subject, reply_text):
     else:
         print(f"❌ Failed to send reply to {to_email}. Error: {response.text}")
 
-@app.route('/brevo-webhook', methods=['POST'])
-def brevo_webhook():
-    data = request.json
-    print("\n--- New Webhook Received ---")
-    
+import threading
+
+def process_webhook_payload(data):
     try:
         # Debugging: Dump raw data to sheet to understand Brevo payload
         raw_json_str = json.dumps(data)
         
         # Brevo's inbound webhook usually sends data directly or inside an 'items' array
         items = data.get("items", []) if "items" in data else [data]
-        
-        # If parsing fails or we just want to see the structure, we can just grab from raw payload
-        # Wait, let's try to extract basic fields but also log the raw json.
         
         for item in items:
             # Try Postmark style
@@ -202,8 +197,17 @@ def brevo_webhook():
             
     except Exception as e:
         print(f"Webhook processing error: {e}")
+
+@app.route('/brevo-webhook', methods=['POST'])
+def brevo_webhook():
+    data = request.json
+    print("\n--- New Webhook Received ---")
+    
+    # Process in background thread to prevent Brevo from timing out and retrying
+    thread = threading.Thread(target=process_webhook_payload, args=(data,))
+    thread.start()
         
-    return jsonify({"status": "success", "message": "Webhook processed successfully"}), 200
+    return jsonify({"status": "success", "message": "Webhook received and processing in background"}), 200
 
 @app.route('/', methods=['GET'])
 def home():
